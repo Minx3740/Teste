@@ -1,0 +1,288 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#0f6b4a">
+<title>Bips POST</title>
+<style>
+:root{--bg:#eef1ec;--panel:#fff;--ink:#14211b;--mute:#5b6b62;--line:#cdd6cf;--acc:#0f6b4a;--accink:#fff;--warn:#b86e00}
+@media (prefers-color-scheme:dark){:root{--bg:#0f1713;--panel:#17221c;--ink:#e6efe9;--mute:#93a69b;--line:#2b3a31;--acc:#3fbf8a;--accink:#06140d;--warn:#e0a040}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+main{max-width:520px;margin:0 auto;padding:20px 16px 48px}
+h1{font-size:1.6rem;margin:0 0 2px;letter-spacing:-.01em}
+h3{margin:0 0 4px;font-size:1.05rem}
+h4{margin:14px 0 4px;font-size:.95rem}
+p{margin:6px 0}
+.mute{color:var(--mute);font-size:.92rem}
+button{font:inherit;border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:10px;padding:12px 14px;min-height:48px}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid var(--acc);outline-offset:2px}
+button.main{width:100%;background:var(--acc);color:var(--accink);border-color:var(--acc);font-weight:600;margin:14px 0 8px}
+button.main.on{background:var(--warn);border-color:var(--warn);color:#fff}
+.row{display:flex;gap:8px;flex-wrap:wrap}
+.row>button{flex:1}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px;margin-top:12px}
+.meter{position:relative;height:14px;background:var(--line);border-radius:7px;overflow:hidden;margin:10px 0 6px}
+.meter b{display:block;height:100%;width:0;background:var(--acc)}
+.meter u{position:absolute;top:0;bottom:0;width:2px;background:var(--ink);opacity:.7}
+.lamp{display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--line);margin-right:6px;vertical-align:baseline}
+.lamp.on{background:var(--acc);box-shadow:0 0 0 4px color-mix(in srgb,var(--acc) 30%,transparent)}
+.seq{display:flex;align-items:center;gap:7px;min-height:22px;margin:6px 0}
+.seq i{display:inline-block;height:14px;background:var(--ink);border-radius:7px}
+.seq i.c{width:14px}.seq i.l{width:42px}
+label{display:block;font-size:.92rem;margin-top:10px}
+select,input[type=range]{width:100%;margin-top:4px}
+select{font:inherit;padding:10px;border-radius:10px;border:1px solid var(--line);background:var(--panel);color:var(--ink)}
+.tag{display:inline-block;font-size:.8rem;border:1px solid var(--acc);color:var(--acc);border-radius:6px;padding:0 7px;margin-bottom:6px}
+ol{margin:4px 0 0;padding-left:22px}
+li{margin:2px 0}
+.res{border-top:1px solid var(--line);padding-top:12px;margin-top:12px}
+.res:first-of-type{border-top:0;padding-top:0;margin-top:0}
+</style>
+</head>
+<body>
+<main>
+<h1>Bips POST</h1>
+<p class="mute">Approche le téléphone du haut-parleur du PC, puis allume le PC.</p>
+
+<button id="go" class="main">Écouter</button>
+<div class="row">
+  <button id="test">Tester avec un son généré</button>
+  <button id="reset">Effacer</button>
+</div>
+
+<div class="panel">
+  <div><span class="lamp" id="lamp"></span><span id="live">Micro éteint</span></div>
+  <div class="meter"><b id="bar"></b><u id="thrmark"></u></div>
+  <label for="thr">Seuil de détection : <span id="thrv">16</span> dB
+    <input id="thr" type="range" min="6" max="30" value="16">
+  </label>
+  <p class="mute">Si rien n'est détecté, baisse le seuil. S'il y a du bruit parasite, monte-le.</p>
+  <label for="brand">Marque du BIOS
+    <select id="brand">
+      <option value="">Je ne sais pas</option>
+      <option>AMI</option>
+      <option>Award</option>
+    </select>
+  </label>
+</div>
+
+<div class="panel">
+  <div class="mute">Saisie manuelle si le micro ne détecte pas bien</div>
+  <div class="row" style="margin-top:8px">
+    <button id="mc">+ court</button><button id="ml">+ long</button><button id="mx">Vider</button>
+  </div>
+  <div class="seq" id="manual"></div>
+</div>
+
+<div class="panel" id="out"><p class="mute">Aucun bip pour l'instant.</p></div>
+<p class="mute">Résultat indicatif, fondé sur les tables AMI et Award courantes. Les PC de marque (Dell, HP, Lenovo, Acer) et beaucoup de cartes récentes ont leurs propres codes : vérifie dans le manuel de la carte mère.</p>
+</main>
+
+<script>
+const $=s=>document.querySelector(s);
+
+// [motif, marque, signification, causes probables par ordre, réparation]
+// C = bip court, L = bip long
+const DB=[
+ ['C','Tous','Test de démarrage réussi (cas normal).',['PC sain. Si l\'écran reste noir : câble vidéo, entrée de l\'écran, carte graphique.'],'gpu','élevée'],
+ ['CC','AMI','Erreur de parité mémoire.',['Barrette de RAM défectueuse ou mal enfichée','Slot mémoire','Carte mère'],'ram','moyenne'],
+ ['CC','Award','Erreur de configuration CMOS.',['Pile CMOS vide','Réglages BIOS corrompus'],'cmos','moyenne'],
+ ['CCC','AMI','Échec de la RAM (premiers 64 Ko).',['Barrette de RAM défectueuse','Barrette mal enfichée ou contacts sales','Slot mémoire'],'ram','élevée'],
+ ['CCCC','AMI','Minuterie système défaillante.',['Carte mère','RAM (moins probable)'],'board','moyenne'],
+ ['CCCCC','AMI','Erreur processeur.',['Processeur mal installé ou broches tordues','Alimentation CPU','Carte mère'],'cpu','moyenne'],
+ ['CCCCCC','AMI','Contrôleur clavier / porte A20.',['Clavier ou souris défectueux','Contrôleur de la carte mère'],'kb','moyenne'],
+ ['CCCCCCC','AMI','Exception en mode virtuel (processeur).',['Processeur','Carte mère'],'cpu','moyenne'],
+ ['CCCCCCCC','AMI','Mémoire vidéo défaillante.',['Carte graphique mal enfichée ou HS','Alimentation PCIe non branchée','Slot PCIe'],'gpu','élevée'],
+ ['CCCCCCCCC','AMI','Somme de contrôle du BIOS incorrecte.',['BIOS corrompu','Puce BIOS ou carte mère'],'bios','moyenne'],
+ ['CCCCCCCCCC','AMI','Erreur du registre d\'arrêt CMOS.',['Pile CMOS','Carte mère'],'cmos','moyenne'],
+ ['CCCCCCCCCCC','AMI','Mémoire cache défaillante.',['Processeur','Carte mère'],'cpu','faible'],
+ ['LCCC','AMI','Erreur de mémoire (conventionnelle / étendue).',['Barrette de RAM défectueuse ou mal enfichée','Slot mémoire'],'ram','élevée'],
+ ['LCCCCCCCC','AMI','Test d\'affichage échoué.',['Carte graphique absente ou mal enfichée','Câble ou écran'],'gpu','élevée'],
+ ['LC','Award','Erreur carte mère ou DRAM.',['RAM','Carte mère'],'ram','moyenne'],
+ ['LCC','Award','Erreur vidéo.',['Carte graphique absente ou mal enfichée','Alimentation PCIe','Carte graphique HS'],'gpu','élevée'],
+ ['LCCC','Award','Erreur vidéo (variante).',['Carte graphique','Mémoire vidéo'],'gpu','faible'],
+ ['LCCCCCCCCC','Award','Erreur de lecture de la ROM.',['Puce BIOS','Carte mère'],'bios','moyenne'],
+ ['CONT_L','Award','Bip continu.',['RAM absente, mal enfichée ou défectueuse','Alimentation défaillante'],'ram','moyenne'],
+ ['REP','Tous','Bips courts répétés sans pause.',['Alimentation défaillante','RAM mal enfichée ou HS','Carte mère'],'ram','moyenne'],
+ ['SIREN','Award','Bip alternant grave et aigu.',['Processeur en surchauffe','Ventilateur CPU arrêté ou mal fixé','Défaut du processeur'],'heat','moyenne']
+];
+const FIX={
+ ram:['Éteindre et débrancher. Retirer les barrettes, nettoyer les contacts, les remettre à fond (clic des deux côtés).','Tester chaque barrette seule, dans chaque slot.','Remplacer par une barrette connue bonne.'],
+ gpu:['Réenficher la carte graphique et vérifier les câbles PCIe.','Essayer la sortie vidéo de la carte mère si le processeur a un GPU intégré.','Changer le câble vidéo et l\'écran.'],
+ cpu:['Vérifier le connecteur d\'alimentation CPU (4 ou 8 broches).','Contrôler la fixation du ventirad et la pâte thermique.','Sortir le processeur, regarder les broches ou le socket, le remettre.'],
+ cmos:['Remplacer la pile CMOS (CR2032).','Réinitialiser le BIOS avec le cavalier Clear CMOS.'],
+ board:['Démarrer avec le strict minimum : processeur, une barrette, carte graphique.','Chercher des condensateurs gonflés ou des traces de brûlure.'],
+ bios:['Réinitialiser le CMOS.','Reflasher le BIOS (BIOS Flashback si la carte le propose).'],
+ kb:['Débrancher clavier et souris, puis redémarrer.','Essayer un autre clavier sur un autre port.'],
+ heat:['Vérifier que le ventilateur CPU tourne et qu\'il est bien fixé.','Dépoussiérer et refaire la pâte thermique.']
+};
+
+let ctx,an,stream,buf,raf,timer,running=false,wake=null;
+let events=[],cur=null,active=false,onSince=null,offSince=null,lastEnd=0,manual='';
+let thr=16,lastHtml='';
+const ON_MS=45,OFF_MS=70,SETTLE_MS=1500,GAP_GROUP=900;
+
+async function start(){
+  if(running) return true;
+  if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){
+    $('#live').textContent='Micro indisponible : ouvre la page en HTTPS.';return false;
+  }
+  try{
+    stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false}});
+  }catch(e){$('#live').textContent='Accès au micro refusé.';return false;}
+  ctx=new (window.AudioContext||window.webkitAudioContext)();
+  await ctx.resume();
+  const src=ctx.createMediaStreamSource(stream);
+  an=ctx.createAnalyser();an.fftSize=2048;an.smoothingTimeConstant=0.1;
+  an.minDecibels=-110;an.maxDecibels=-10;
+  src.connect(an);
+  buf=new Float32Array(an.frequencyBinCount);
+  running=true;
+  try{wake=await navigator.wakeLock.request('screen');}catch(e){}
+  $('#go').textContent='Arrêter';$('#go').classList.add('on');
+  raf=requestAnimationFrame(tick);
+  timer=setInterval(render,300);
+  return true;
+}
+function stop(){
+  running=false;cancelAnimationFrame(raf);clearInterval(timer);
+  if(stream) stream.getTracks().forEach(t=>t.stop());
+  if(ctx) ctx.close();
+  if(wake){wake.release();wake=null;}
+  if(active&&cur){cur.e=performance.now();events.push(cur);active=false;cur=null;}
+  $('#go').textContent='Écouter';$('#go').classList.remove('on');
+  $('#live').textContent='Micro éteint';$('#lamp').classList.remove('on');$('#bar').style.width='0';
+  render();
+}
+
+function tick(){
+  if(!running) return;
+  an.getFloatFrequencyData(buf);
+  const hz=ctx.sampleRate/an.fftSize;
+  const lo=Math.floor(700/hz),hi=Math.ceil(6000/hz);
+  let pk=-Infinity,pi=lo;const band=[];
+  for(let i=lo;i<=hi;i++){const v=buf[i];band.push(v);if(v>pk){pk=v;pi=i;}}
+  band.sort((a,b)=>a-b);
+  const delta=pk-band[band.length>>1];
+  const freq=Math.round(pi*hz);
+  const tonal=delta>=thr&&pk>-85;
+  const now=performance.now();
+  if(tonal){
+    offSince=null;if(onSince===null) onSince=now;
+    if(!active&&now-onSince>=ON_MS){active=true;cur={s:onSince,fs:[]};}
+    if(active) cur.fs.push(freq);
+  }else{
+    onSince=null;if(offSince===null) offSince=now;
+    if(active&&now-offSince>=OFF_MS){active=false;cur.e=offSince;events.push(cur);cur=null;lastEnd=offSince;}
+  }
+  $('#bar').style.width=Math.max(0,Math.min(100,delta/40*100))+'%';
+  $('#lamp').classList.toggle('on',active);
+  $('#live').textContent=active?`Bip détecté, ${freq} Hz`:'Écoute en cours';
+  raf=requestAnimationFrame(tick);
+}
+
+function pct(a,p){return a[Math.min(a.length-1,Math.floor(p*a.length))];}
+
+function analyse(){
+  if(manual){
+    return {pat:manual,count:1,groups:[manual],special:null,settled:true,manual:true};
+  }
+  const now=performance.now();
+  const ev=events.slice();
+  if(active&&cur) ev.push({s:cur.s,e:now,fs:cur.fs});
+  if(!ev.length) return null;
+  const d=ev.map(e=>e.e-e.s);
+  const mn=Math.min(...d),mx=Math.max(...d);
+  const split=(mx/mn>1.7&&mx>=350)?Math.sqrt(mn*mx):550;
+  const types=ev.map((e,i)=>d[i]>split?'L':'C');
+  const settled=!running||(!active&&now-lastEnd>SETTLE_MS);
+  let siren=false;
+  ev.forEach(e=>{const f=e.fs.slice().sort((a,b)=>a-b);
+    if(f.length>=8&&pct(f,.9)/pct(f,.1)>1.4) siren=true;});
+  const groups=[];let g='';
+  ev.forEach((e,i)=>{
+    if(i>0&&e.s-ev[i-1].e>GAP_GROUP){groups.push(g);g='';}
+    g+=types[i];
+  });
+  groups.push(g);
+  let special=null;
+  if(siren) special='SIREN';
+  else if(mx>3000) special='CONT_L';
+  else if(ev.length>=12&&groups.length===1) special='REP';
+  const cnt={};groups.forEach(x=>cnt[x]=(cnt[x]||0)+1);
+  const best=Object.keys(cnt).sort((a,b)=>cnt[b]-cnt[a]||b.length-a.length)[0];
+  return {pat:special||best,count:cnt[best],groups,special,settled,manual:false};
+}
+
+function human(p){
+  if(p==='CONT_L') return 'bip continu';
+  if(p==='REP') return 'bips courts répétés sans pause';
+  if(p==='SIREN') return 'bip alternant grave et aigu';
+  const parts=[];let i=0;
+  while(i<p.length){let j=i;while(j<p.length&&p[j]===p[i]) j++;
+    const n=j-i,l=p[i]==='L';
+    parts.push(n+' '+(l?(n>1?'longs':'long'):(n>1?'courts':'court')));i=j;}
+  return parts.join(' + ');
+}
+const chips=s=>/^[CL]+$/.test(s)?s.split('').map(c=>`<i class="${c==='L'?'l':'c'}"></i>`).join(''):'';
+
+function render(){
+  $('#manual').innerHTML=chips(manual);
+  const a=analyse();let h='';
+  if(!a){
+    h='<p class="mute">'+(running?'En attente d\'un bip. Approche le téléphone du haut-parleur.':'Aucun bip pour l\'instant.')+'</p>';
+  }else if(!a.settled){
+    h='<p class="mute">Écoute en cours, ne coupe pas avant la fin du motif.</p>'+
+      a.groups.slice(-3).map(g=>`<div class="seq">${chips(g)}</div>`).join('');
+  }else{
+    const sel=$('#brand').value;
+    let m=DB.filter(x=>x[0]===a.pat);
+    let note='';
+    const f=m.filter(x=>x[1]==='Tous'||!sel||x[1]===sel);
+    if(f.length) m=f;else if(m.length) note=`<p class="mute">Aucun code ${sel} pour ce motif, voici les autres BIOS.</p>`;
+    h=`<h3>${human(a.pat)}</h3><div class="seq">${chips(a.pat)}</div>`;
+    if(!a.manual&&!a.special) h+=`<p class="mute">Motif vu ${a.count} fois.${a.count<2?' Relance le PC pour confirmer.':''}</p>`;
+    h+=note;
+    if(!m.length){
+      h+='<p>Aucun code courant ne correspond. Ce motif vient sans doute d\'un code propre au constructeur ou de la carte mère.</p>'+
+         '<p class="mute">Cherche « [modèle du PC ou de la carte mère] beep codes ». En attendant, la RAM est la première cause à écarter.</p>'+
+         '<h4>À tester dans cet ordre</h4><ol>'+FIX.ram.map(x=>`<li>${x}</li>`).join('')+'</ol>';
+    }else{
+      m.forEach(x=>{
+        h+=`<section class="res"><span class="tag">${x[1]==='Tous'?'Général':x[1]}</span><h3>${x[2]}</h3>`+
+           `<p class="mute">Fiabilité du code : ${x[5]}</p><h4>Causes probables</h4><ol>${x[3].map(c=>`<li>${c}</li>`).join('')}</ol>`+
+           (FIX[x[4]]?`<h4>À tester dans cet ordre</h4><ol>${FIX[x[4]].map(c=>`<li>${c}</li>`).join('')}</ol>`:'')+`</section>`;
+      });
+    }
+  }
+  if(h!==lastHtml){$('#out').innerHTML=h;lastHtml=h;}
+}
+
+function beep(t,d){
+  const o=ctx.createOscillator(),g=ctx.createGain();
+  o.frequency.value=2000;g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(.6,t+.005);
+  g.gain.setValueAtTime(.6,t+d-.005);g.gain.linearRampToValueAtTime(0,t+d);
+  o.connect(g).connect(ctx.destination);o.start(t);o.stop(t+d);
+}
+async function playTest(){
+  if(!(await start())) return;
+  events=[];cur=null;active=false;manual='';lastHtml='';
+  const t0=ctx.currentTime+.6;
+  for(let r=0;r<2;r++){[[0,.8],[1.0,.2],[1.4,.2]].forEach(([a,d])=>beep(t0+r*3+a,d));}
+}
+
+$('#go').onclick=()=>running?stop():start();
+$('#test').onclick=playTest;
+$('#reset').onclick=()=>{events=[];cur=null;active=false;manual='';lastHtml='';render();};
+$('#mc').onclick=()=>{manual+='C';render();};
+$('#ml').onclick=()=>{manual+='L';render();};
+$('#mx').onclick=()=>{manual='';render();};
+$('#brand').onchange=()=>{lastHtml='';render();};
+$('#thr').oninput=e=>{thr=+e.target.value;$('#thrv').textContent=thr;$('#thrmark').style.left=(thr/40*100)+'%';};
+$('#thrmark').style.left=(thr/40*100)+'%';
+render();
+</script>
+</body>
+</html>
